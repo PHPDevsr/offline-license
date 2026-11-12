@@ -19,30 +19,22 @@ the account host with the host for your deployment.
 GRANT SELECT ON license_service.licenses TO 'license_issuer'@'issuer-host';
 ```
 
-Store the read-only account settings in a JSON secret file such as
-`./secrets/mysql.json`, then set `LICENSE_DB_CONFIG_FILE` to that path.
-Set `address` to the MySQL host and port.
+Copy [`.env.example`](.env.example) to `.env` and fill in the read-only
+MySQL account settings. Put the password in single quotes so characters
+such as `$` and `#` are read literally.
 
-```json
-{
-  "user": "license_issuer",
-  "password": "example-$@:/?#%\"\\",
-  "address": "db.example.com:3306",
-  "database": "license_service",
-  "tls": true
-}
+```dotenv
+LICENSE_DB_USER=license_issuer
+LICENSE_DB_PASSWORD='example-$@:/?#%'
+LICENSE_DB_ADDRESS=db.example.com:3306
+LICENSE_DB_NAME=license_service
+LICENSE_DB_TLS=true
 ```
 
-Use ordinary JSON escaping for quotes, backslashes, and control characters
-in the password. The service passes the decoded password directly to the
-MySQL driver. Compose reads the file as a secret and interpolates only the
-file path.
-
 TLS with certificate verification is enabled by default. Use a valid MySQL
-certificate trusted by the service, or set `tls` to `false` for local MySQL
-without TLS. Existing deployments can still use `LICENSE_DB_DSN_FILE`.
-The JSON file takes precedence when both paths are set. Use a separate
-administrative account for migrations and data changes.
+certificate trusted by the service, or set `LICENSE_DB_TLS=false` for local
+MySQL without TLS. Use a separate administrative account for migrations and
+data changes.
 
 ## Deployment
 
@@ -57,15 +49,26 @@ The Fiber listener serves HTTP/1.1 over TLS 1.2 or later.
 | `LICENSE_KEY_ID` | ID of the public key distributed to applications |
 | `LICENSE_PRIVATE_KEY_FILE` | Path to the private signing key |
 | `LICENSE_OPERATOR_TOKEN` | Random operator token of at least 32 characters with no whitespace |
-| `LICENSE_DB_CONFIG_FILE` | Path to the JSON secret file containing the read-only MySQL configuration |
-| `LICENSE_DB_DSN_FILE` | Path to an existing MySQL DSN secret file, used when `LICENSE_DB_CONFIG_FILE` is unset |
+| `LICENSE_DB_USER` | Read-only MySQL account name |
+| `LICENSE_DB_PASSWORD` | MySQL password |
+| `LICENSE_DB_ADDRESS` | MySQL host and port |
+| `LICENSE_DB_NAME` | License database name |
+| `LICENSE_DB_TLS` | Enable MySQL TLS with certificate verification. Defaults to `true` |
 | `LICENSE_TLS_CERT_FILE` | Path to the HTTPS certificate chain in PEM format |
 | `LICENSE_TLS_KEY_FILE` | Path to the HTTPS private key in PEM format |
 | `LICENSE_BIND_IP` | Host IP used by Docker Compose to publish the port. Defaults to `127.0.0.1` |
-| `LICENSE_LISTEN_ADDR` | HTTPS listen address when running the binary directly. Defaults to `:8443` |
+| `LICENSE_PORT` | HTTPS listen port and the port published by Compose. Defaults to `8443` |
+| `LICENSE_LISTEN_ADDR` | Optional full listen address for the standalone binary. Takes precedence over `LICENSE_PORT` |
 
-Load the configuration and token from the deployment secret store. Files
-mounted by Compose must be readable by container UID/GID `65532:65532`.
+Fill in the operator token and file paths in `.env`. Compose loads this
+file automatically. The standalone binary reads `.env` from its working
+directory. In either case, existing environment variables take precedence.
+For standalone deployments using file-based MySQL configuration,
+`LICENSE_DB_CONFIG_FILE` or `LICENSE_DB_DSN_FILE` remains available when
+the individual MySQL variables are unset. Compose deployments use the
+individual settings shown above.
+
+Files mounted by Compose must be readable by container UID/GID `65532:65532`.
 On Linux with bind mounts, grant that UID or GID access to the source files.
 Restrict access to the operator network and use an address that matches the
 certificate.
@@ -100,7 +103,8 @@ VALUES ('example-license-001', 'example-installation-001', 'example-app',
 
 ## Issue and renew licenses
 
-Operators request license files over HTTPS. The central operator holds the
+Operators request license files over HTTPS. Use the port set by
+`LICENSE_PORT` in the URL. The central operator holds the
 token, which authorizes issuance for all products. Customer applications use
 the license file and public key for offline verification.
 
@@ -139,7 +143,7 @@ git push origin v1.0.0
 
 After the CI matrix passes, GitHub Actions publishes release notes, binary
 archives for Linux, Windows, and macOS (`amd64` and `arm64`), and
-`SHA256SUMS`. Each archive contains the database schema.
+`SHA256SUMS`. Each archive contains the database schema and `.env.example`.
 
 ## Checks
 

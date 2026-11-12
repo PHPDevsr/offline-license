@@ -13,9 +13,11 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/compose-spec/compose-go/v2/dotenv"
 	"github.com/go-sql-driver/mysql"
 	"github.com/gofiber/fiber/v3"
 )
@@ -29,6 +31,9 @@ func main() {
 func run() error {
 	if len(os.Args) > 1 && (len(os.Args) != 2 || os.Args[1] != "print-keyring") {
 		return errors.New("expected no argument or print-keyring")
+	}
+	if err := loadDotEnv(".env"); err != nil {
+		return err
 	}
 	key, err := readPrivateKey(os.Getenv("LICENSE_PRIVATE_KEY_FILE"))
 	if err != nil {
@@ -52,7 +57,7 @@ func run() error {
 	if len(token) < 32 || strings.ContainsAny(token, " \t\r\n") {
 		return errors.New("require LICENSE_OPERATOR_TOKEN (at least 32 characters, no whitespace)")
 	}
-	config, err := readDBConfig(os.Getenv("LICENSE_DB_CONFIG_FILE"), os.Getenv("LICENSE_DB_DSN_FILE"))
+	config, err := databaseConfig(os.Getenv)
 	if err != nil {
 		return err
 	}
@@ -64,7 +69,15 @@ func run() error {
 
 	addr := os.Getenv("LICENSE_LISTEN_ADDR")
 	if addr == "" {
-		addr = ":8443"
+		port := os.Getenv("LICENSE_PORT")
+		if port == "" {
+			port = "8443"
+		}
+		number, err := strconv.ParseUint(port, 10, 16)
+		if err != nil || number == 0 {
+			return errors.New("LICENSE_PORT must be a port number between 1 and 65535")
+		}
+		addr = ":" + port
 	}
 	certificate, err := tls.LoadX509KeyPair(os.Getenv("LICENSE_TLS_CERT_FILE"), os.Getenv("LICENSE_TLS_KEY_FILE"))
 	if err != nil {
@@ -78,6 +91,55 @@ func run() error {
 			Certificates: []tls.Certificate{certificate},
 		},
 	})
+}
+
+func loadDotEnv(path string) error {
+	file, err := os.Open(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("open environment file: %w", err)
+	}
+	defer file.Close()
+
+	values, err := dotenv.ParseWithLookup(file, os.LookupEnv)
+	if err != nil {
+		return errors.New("invalid .env configuration")
+	}
+	for name, value := range values {
+		if _, exists := os.LookupEnv(name); exists {
+			continue
+		}
+		if err := os.Setenv(name, value); err != nil {
+			return errors.New("could not load .env configuration")
+		}
+	}
+	return nil
+}
+
+func databaseConfig(getenv func(string) string) (*mysql.Config, error) {
+	user := getenv("LICENSE_DB_USER")
+	password := getenv("LICENSE_DB_PASSWORD")
+	address := getenv("LICENSE_DB_ADDRESS")
+	database := getenv("LICENSE_DB_NAME")
+	tlsValue := getenv("LICENSE_DB_TLS")
+	if user == "" && password == "" && address == "" && database == "" && tlsValue == "" {
+		return readDBConfig(getenv("LICENSE_DB_CONFIG_FILE"), getenv("LICENSE_DB_DSN_FILE"))
+	}
+	useTLS := true
+	if tlsValue != "" {
+		var err error
+		useTLS, err = strconv.ParseBool(tlsValue)
+		if err != nil {
+			return nil, errors.New("LICENSE_DB_TLS must be a boolean")
+		}
+	}
+	config, err := mysqlConfig(user, password, address, database, useTLS)
+	if err != nil {
+		return nil, errors.New("set LICENSE_DB_USER, LICENSE_DB_ADDRESS, and LICENSE_DB_NAME")
+	}
+	return config, nil
 }
 
 func readDBConfig(configPath, dsnPath string) (*mysql.Config, error) {
@@ -96,23 +158,15 @@ func readDBConfig(configPath, dsnPath string) (*mysql.Config, error) {
 		if err := json.Unmarshal(data, &settings, json.RejectUnknownMembers(true)); err != nil {
 			return nil, errors.New("invalid JSON in LICENSE_DB_CONFIG_FILE")
 		}
-		if settings.User == "" || settings.Address == "" || settings.Database == "" {
+		config, err := mysqlConfig(settings.User, settings.Password, settings.Address, settings.Database, settings.TLS == nil || *settings.TLS)
+		if err != nil {
 			return nil, errors.New("LICENSE_DB_CONFIG_FILE requires user, address, and database")
-		}
-		config := mysql.NewConfig()
-		config.User = settings.User
-		config.Passwd = settings.Password
-		config.Net = "tcp"
-		config.Addr = settings.Address
-		config.DBName = settings.Database
-		if settings.TLS == nil || *settings.TLS {
-			config.TLSConfig = "true"
 		}
 		return config, nil
 	}
 
 	if dsnPath == "" {
-		return nil, errors.New("set LICENSE_DB_CONFIG_FILE or LICENSE_DB_DSN_FILE")
+		return nil, errors.New("set LICENSE_DB_USER, LICENSE_DB_ADDRESS, and LICENSE_DB_NAME")
 	}
 	data, err := os.ReadFile(dsnPath)
 	if err != nil {
@@ -125,6 +179,22 @@ func readDBConfig(configPath, dsnPath string) (*mysql.Config, error) {
 	config, err := mysql.ParseDSN(dsn)
 	if err != nil {
 		return nil, errors.New("invalid license database DSN")
+	}
+	return config, nil
+}
+
+func mysqlConfig(user, password, address, database string, useTLS bool) (*mysql.Config, error) {
+	if user == "" || address == "" || database == "" {
+		return nil, errors.New("missing required MySQL settings")
+	}
+	config := mysql.NewConfig()
+	config.User = user
+	config.Passwd = password
+	config.Net = "tcp"
+	config.Addr = address
+	config.DBName = database
+	if useTLS {
+		config.TLSConfig = "true"
 	}
 	return config, nil
 }

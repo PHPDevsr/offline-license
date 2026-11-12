@@ -2,18 +2,21 @@ services:
   license-server:
     build: .
     ports:
-      - "${LICENSE_BIND_IP:-127.0.0.1}:8443:8443"
+      - "${LICENSE_BIND_IP:-127.0.0.1}:${LICENSE_PORT:-8443}:${LICENSE_PORT:-8443}"
     environment:
       LICENSE_KEY_ID: "${LICENSE_KEY_ID:?Set the active key ID}"
+      LICENSE_PORT: "${LICENSE_PORT:-8443}"
       LICENSE_OPERATOR_TOKEN: "${LICENSE_OPERATOR_TOKEN:?Set the operator token}"
       LICENSE_PRIVATE_KEY_FILE: /run/secrets/signing_key
-      LICENSE_DB_CONFIG_FILE: "${LICENSE_DB_CONFIG_FILE:+/run/secrets/database_config}"
-      LICENSE_DB_DSN_FILE: "${LICENSE_DB_DSN_FILE:+/run/secrets/database_config}"
+      LICENSE_DB_USER: "${LICENSE_DB_USER:?Set the MySQL username}"
+      LICENSE_DB_PASSWORD: "${LICENSE_DB_PASSWORD-}"
+      LICENSE_DB_ADDRESS: "${LICENSE_DB_ADDRESS:?Set the MySQL address}"
+      LICENSE_DB_NAME: "${LICENSE_DB_NAME:?Set the MySQL database name}"
+      LICENSE_DB_TLS: "${LICENSE_DB_TLS:-true}"
       LICENSE_TLS_CERT_FILE: /run/secrets/tls_certificate
       LICENSE_TLS_KEY_FILE: /run/secrets/tls_key
     secrets:
       - signing_key
-      - database_config
       - tls_certificate
       - tls_key
     read_only: true
@@ -22,8 +25,6 @@ services:
 secrets:
   signing_key:
     file: "${LICENSE_PRIVATE_KEY_FILE:?Set the signing key path}"
-  database_config:
-    file: "${LICENSE_DB_CONFIG_FILE:-${LICENSE_DB_DSN_FILE:?Set LICENSE_DB_CONFIG_FILE or LICENSE_DB_DSN_FILE}}"
   tls_certificate:
     file: "${LICENSE_TLS_CERT_FILE:?Set the TLS certificate path}"
   tls_key:
