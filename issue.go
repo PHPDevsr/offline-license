@@ -150,7 +150,7 @@ func validID(id string) bool {
 
 func (i issuer) sign(c claims) ([]byte, error) {
 	c.Version = 1
-	c.Issuer = "abb-license"
+	c.Issuer = "phpdevsr-offline-license"
 	payload, err := json.Marshal(c)
 	if err != nil {
 		return nil, err

@@ -3,7 +3,7 @@
 ## Identity
 
 - `product` is a stable application code in the License Server catalog.
-- Every product uses the issuer `abb-license`.
+- Every product uses the issuer `offline-license`.
 - `license_id` is unique across the License Server. Each license belongs
   to one product and one `installation_id`. Assign a stable installation ID
   that is unique within the product to identify each customer deployment.
@@ -32,7 +32,7 @@ issuer signs the UTF-8 JSON payload bytes before encoding them.
 | Payload field | Type and value |
 | --- | --- |
 | `version` | Integer `1` |
-| `issuer` | String `abb-license` |
+| `issuer` | String `offline-license` |
 | `product` | Registered product code string |
 | `license_id` | License ID string |
 | `installation_id` | Installation ID string |
@@ -45,7 +45,7 @@ and the final expiration must be at or after the start of the grace period.
 ## Application verification
 
 1. Provision the keyring through trusted deployment configuration. Configure
-   the application with issuer `abb-license`, its product code, and the
+   the application with issuer `offline-license`, its product code, and the
    local installation ID. The `print-keyring` command outputs a standard
    base64-encoded JSON object that maps each `kid` to a standard
    base64-encoded 32-byte Ed25519 public key.

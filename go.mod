@@ -1,4 +1,4 @@
-module license-abb
+module github.com/PHPDevsr/offline-license
 
 go 1.27.4
 

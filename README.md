@@ -57,24 +57,23 @@ docker compose run --rm --no-deps license-server print-keyring
 ```
 
 Distribute the `print-keyring` output through trusted deployment
-configuration. ETIQA CLAIM loads it from the `LICENSE_PUBLIC_KEYS_B64` CI
-variable. During rotation, distribute the new public key to all applications
+configuration. During rotation, distribute the new public key to all applications
 using the keyring before activating the new signing key. Keep the previous
 public key for as long as any active license uses it.
 
 ## Register products and installations
 
-Register each product once. Every product uses the `abb-license` issuer.
+Register each product once. Every product uses the `offline-license` issuer.
 Integrate the verifier once per application using its product code.
 To add a customer installation, create a license record with stable IDs
 and UTC dates. The running service picks up new records on the next
 issuance request.
 
 ```sql
-INSERT INTO license_products (product) VALUES ('portal-mitra');
+INSERT INTO license_products (product) VALUES ('example-app');
 
 INSERT INTO licenses (license_id, installation_id, product, expired, expired_extra_gracia)
-VALUES ('mitra-jakarta-001', 'mitra-prod-jakarta', 'portal-mitra',
+VALUES ('example-license-001', 'example-installation-001', 'example-app',
         '2027-12-31 00:00:00', '2028-01-07 00:00:00');
 ```
 
@@ -90,7 +89,7 @@ curl --fail --silent --show-error \
   --request POST https://licenses.example.com:8443/v1/licenses/issue \
   --header "Authorization: Bearer $LICENSE_OPERATOR_TOKEN" \
   --header 'Content-Type: application/json' \
-  --data '{"license_id":"mitra-jakarta-001","installation_id":"mitra-prod-jakarta"}' \
+  --data '{"license_id":"example-license-001","installation_id":"example-installation-001"}' \
   --output .license.new
 ```
 

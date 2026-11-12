@@ -45,7 +45,7 @@ func TestSignLicenseV1(t *testing.T) {
 	}
 	service := issuer{keyID: "test-key", key: key}
 	file, err := service.sign(claims{
-		Product:            "eclaim-wom-api",
+		Product:            "example-app",
 		LicenseID:          "license-1",
 		InstallationID:     "install_2",
 		Expired:            time.Date(2027, 12, 31, 0, 0, 0, 123456000, time.UTC),
@@ -65,7 +65,7 @@ func TestSignLicenseV1(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	const want = `{"version":1,"issuer":"abb-license","product":"eclaim-wom-api","license_id":"license-1","installation_id":"install_2","expired":"2027-12-31T00:00:00.123456Z","expired_extra_gracia":"2028-01-07T00:00:00Z"}`
+	const want = `{"version":1,"issuer":"phpdevsr-offline-license","product":"example-app","license_id":"license-1","installation_id":"install_2","expired":"2027-12-31T00:00:00.123456Z","expired_extra_gracia":"2028-01-07T00:00:00Z"}`
 	if string(payload) != want {
 		t.Fatalf("unexpected v1 payload: %s", payload)
 	}
