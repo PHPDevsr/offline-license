@@ -62,6 +62,19 @@ Relative key and certificate paths are resolved from that file's directory.
 Compose mounts `config.yaml` and `secrets/` as read-only. The files must
 be readable by container UID/GID `65532:65532`.
 
+For a standard rootful Docker installation on Linux, run these commands as
+root from the deployment directory after creating the configuration and signing
+key. The container group can read the files and traverse the secrets directory.
+
+```sh
+chown root:65532 config.yaml secrets secrets/signing.pem
+chmod 0750 secrets
+chmod 0640 config.yaml secrets/signing.pem
+```
+
+If Docker uses rootless mode or user namespace remapping, use the host GID
+that maps to container GID `65532`.
+
 Run `sh deploy.sh` to deploy with Compose. It reads `server.port` from
 `config.yaml` and uses that value for both the container and published host
 ports. Run it again after editing the configuration. The host bind address
