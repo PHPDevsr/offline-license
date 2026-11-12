@@ -7,12 +7,13 @@ services:
       LICENSE_KEY_ID: "${LICENSE_KEY_ID:?Set the active key ID}"
       LICENSE_OPERATOR_TOKEN: "${LICENSE_OPERATOR_TOKEN:?Set the operator token}"
       LICENSE_PRIVATE_KEY_FILE: /run/secrets/signing_key
-      LICENSE_DB_DSN_FILE: /run/secrets/database_dsn
+      LICENSE_DB_CONFIG_FILE: "${LICENSE_DB_CONFIG_FILE:+/run/secrets/database_config}"
+      LICENSE_DB_DSN_FILE: "${LICENSE_DB_DSN_FILE:+/run/secrets/database_config}"
       LICENSE_TLS_CERT_FILE: /run/secrets/tls_certificate
       LICENSE_TLS_KEY_FILE: /run/secrets/tls_key
     secrets:
       - signing_key
-      - database_dsn
+      - database_config
       - tls_certificate
       - tls_key
     read_only: true
@@ -21,8 +22,8 @@ services:
 secrets:
   signing_key:
     file: "${LICENSE_PRIVATE_KEY_FILE:?Set the signing key path}"
-  database_dsn:
-    file: "${LICENSE_DB_DSN_FILE:?Set the read-only database DSN path}"
+  database_config:
+    file: "${LICENSE_DB_CONFIG_FILE:-${LICENSE_DB_DSN_FILE:?Set LICENSE_DB_CONFIG_FILE or LICENSE_DB_DSN_FILE}}"
   tls_certificate:
     file: "${LICENSE_TLS_CERT_FILE:?Set the TLS certificate path}"
   tls_key:

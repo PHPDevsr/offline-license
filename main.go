@@ -52,11 +52,11 @@ func run() error {
 	if len(token) < 32 || strings.ContainsAny(token, " \t\r\n") {
 		return errors.New("require LICENSE_OPERATOR_TOKEN (at least 32 characters, no whitespace)")
 	}
-	dsn, err := os.ReadFile(os.Getenv("LICENSE_DB_DSN_FILE"))
+	config, err := readDBConfig(os.Getenv("LICENSE_DB_CONFIG_FILE"), os.Getenv("LICENSE_DB_DSN_FILE"))
 	if err != nil {
-		return fmt.Errorf("read LICENSE_DB_DSN_FILE: %w", err)
+		return err
 	}
-	db, err := openDB(strings.TrimRight(string(dsn), "\r\n"))
+	db, err := openDB(config)
 	if err != nil {
 		return err
 	}
@@ -80,7 +80,45 @@ func run() error {
 	})
 }
 
-func openDB(dsn string) (*sql.DB, error) {
+func readDBConfig(configPath, dsnPath string) (*mysql.Config, error) {
+	if configPath != "" {
+		data, err := os.ReadFile(configPath)
+		if err != nil {
+			return nil, fmt.Errorf("read LICENSE_DB_CONFIG_FILE: %w", err)
+		}
+		var settings struct {
+			User     string `json:"user"`
+			Password string `json:"password"`
+			Address  string `json:"address"`
+			Database string `json:"database"`
+			TLS      *bool  `json:"tls"`
+		}
+		if err := json.Unmarshal(data, &settings, json.RejectUnknownMembers(true)); err != nil {
+			return nil, errors.New("invalid JSON in LICENSE_DB_CONFIG_FILE")
+		}
+		if settings.User == "" || settings.Address == "" || settings.Database == "" {
+			return nil, errors.New("LICENSE_DB_CONFIG_FILE requires user, address, and database")
+		}
+		config := mysql.NewConfig()
+		config.User = settings.User
+		config.Passwd = settings.Password
+		config.Net = "tcp"
+		config.Addr = settings.Address
+		config.DBName = settings.Database
+		if settings.TLS == nil || *settings.TLS {
+			config.TLSConfig = "true"
+		}
+		return config, nil
+	}
+
+	if dsnPath == "" {
+		return nil, errors.New("set LICENSE_DB_CONFIG_FILE or LICENSE_DB_DSN_FILE")
+	}
+	data, err := os.ReadFile(dsnPath)
+	if err != nil {
+		return nil, fmt.Errorf("read LICENSE_DB_DSN_FILE: %w", err)
+	}
+	dsn := strings.TrimRight(string(data), "\r\n")
 	if dsn == "" {
 		return nil, errors.New("empty license database DSN")
 	}
@@ -88,6 +126,10 @@ func openDB(dsn string) (*sql.DB, error) {
 	if err != nil {
 		return nil, errors.New("invalid license database DSN")
 	}
+	return config, nil
+}
+
+func openDB(config *mysql.Config) (*sql.DB, error) {
 	connector, err := mysql.NewConnector(config)
 	if err != nil {
 		return nil, errors.New("invalid license database connection settings")

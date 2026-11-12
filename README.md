@@ -19,10 +19,30 @@ the account host with the host for your deployment.
 GRANT SELECT ON license_service.licenses TO 'license_issuer'@'issuer-host';
 ```
 
-Store the issuer account DSN in a secret file using the format
-`user:password@tcp(db.example.com:3306)/license_service?tls=true`.
-With `tls=true`, use a valid MySQL certificate trusted by the container.
-Use a separate administrative account for migrations and data changes.
+Store the read-only account settings in a JSON secret file such as
+`./secrets/mysql.json`, then set `LICENSE_DB_CONFIG_FILE` to that path.
+Set `address` to the MySQL host and port.
+
+```json
+{
+  "user": "license_issuer",
+  "password": "example-$@:/?#%\"\\",
+  "address": "db.example.com:3306",
+  "database": "license_service",
+  "tls": true
+}
+```
+
+Use ordinary JSON escaping for quotes, backslashes, and control characters
+in the password. The service passes the decoded password directly to the
+MySQL driver. Compose reads the file as a secret and interpolates only the
+file path.
+
+TLS with certificate verification is enabled by default. Use a valid MySQL
+certificate trusted by the service, or set `tls` to `false` for local MySQL
+without TLS. Existing deployments can still use `LICENSE_DB_DSN_FILE`.
+The JSON file takes precedence when both paths are set. Use a separate
+administrative account for migrations and data changes.
 
 ## Deployment
 
@@ -37,7 +57,8 @@ The Fiber listener serves HTTP/1.1 over TLS 1.2 or later.
 | `LICENSE_KEY_ID` | ID of the public key distributed to applications |
 | `LICENSE_PRIVATE_KEY_FILE` | Path to the private signing key |
 | `LICENSE_OPERATOR_TOKEN` | Random operator token of at least 32 characters with no whitespace |
-| `LICENSE_DB_DSN_FILE` | Path to the secret file containing the read-only MySQL DSN |
+| `LICENSE_DB_CONFIG_FILE` | Path to the JSON secret file containing the read-only MySQL configuration |
+| `LICENSE_DB_DSN_FILE` | Path to an existing MySQL DSN secret file, used when `LICENSE_DB_CONFIG_FILE` is unset |
 | `LICENSE_TLS_CERT_FILE` | Path to the HTTPS certificate chain in PEM format |
 | `LICENSE_TLS_KEY_FILE` | Path to the HTTPS private key in PEM format |
 | `LICENSE_BIND_IP` | Host IP used by Docker Compose to publish the port. Defaults to `127.0.0.1` |

@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/go-sql-driver/mysql"
 )
 
 func TestReadIssueRequest(t *testing.T) {
@@ -79,7 +81,7 @@ func TestSignLicenseV1(t *testing.T) {
 }
 
 func TestIssueHTTPErrorResponses(t *testing.T) {
-	db, err := openDB("issuer@tcp(127.0.0.1:1)/license_test")
+	db, err := openDB(mysql.NewConfig())
 	if err != nil {
 		t.Fatal(err)
 	}
