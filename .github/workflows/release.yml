@@ -53,7 +53,7 @@ jobs:
                 binary=license-server.exe
               fi
               GOOS="$os" GOARCH="$arch" go build -mod=readonly -trimpath -o "dist/$name/$binary" .
-              cp -R migrations .env.example "dist/$name/"
+              cp -R migrations config.example.yaml "dist/$name/"
               if [[ "$os" == windows ]]; then
                 (cd dist && zip -qr "$name.zip" "$name")
               else

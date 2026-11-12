@@ -5,7 +5,7 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 
-COPY main.go issue.go ./
+COPY main.go config.go issue.go ./
 
 # Compile
 RUN CGO_ENABLED=0 go build -trimpath -o /out/license-server .

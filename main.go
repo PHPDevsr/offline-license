@@ -12,12 +12,12 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net"
 	"os"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/compose-spec/compose-go/v2/dotenv"
 	"github.com/go-sql-driver/mysql"
 	"github.com/gofiber/fiber/v3"
 )
@@ -32,16 +32,17 @@ func run() error {
 	if len(os.Args) > 1 && (len(os.Args) != 2 || os.Args[1] != "print-keyring") {
 		return errors.New("expected no argument or print-keyring")
 	}
-	if err := loadDotEnv(".env"); err != nil {
-		return err
-	}
-	key, err := readPrivateKey(os.Getenv("LICENSE_PRIVATE_KEY_FILE"))
+	config, err := loadConfig("config.yaml")
 	if err != nil {
 		return err
 	}
-	kid := os.Getenv("LICENSE_KEY_ID")
+	key, err := readPrivateKey(config.Signing.PrivateKeyFile)
+	if err != nil {
+		return err
+	}
+	kid := config.Signing.KeyID
 	if !validID(kid) {
-		return errors.New("invalid LICENSE_KEY_ID")
+		return errors.New("invalid signing.key_id")
 	}
 	if len(os.Args) == 2 {
 		publicKey := base64.StdEncoding.EncodeToString(key.Public().(ed25519.PublicKey))
@@ -53,150 +54,41 @@ func run() error {
 		return err
 	}
 
-	token := os.Getenv("LICENSE_OPERATOR_TOKEN")
+	token := config.OperatorToken
 	if len(token) < 32 || strings.ContainsAny(token, " \t\r\n") {
-		return errors.New("require LICENSE_OPERATOR_TOKEN (at least 32 characters, no whitespace)")
+		return errors.New("operator_token must have at least 32 characters and no whitespace")
 	}
-	config, err := databaseConfig(os.Getenv)
+	database, err := config.Database.mysqlConfig()
 	if err != nil {
 		return err
 	}
-	db, err := openDB(config)
+	db, err := openDB(database)
 	if err != nil {
 		return err
 	}
 	defer db.Close()
 
-	addr := os.Getenv("LICENSE_LISTEN_ADDR")
-	if addr == "" {
-		port := os.Getenv("LICENSE_PORT")
-		if port == "" {
-			port = "8443"
-		}
-		number, err := strconv.ParseUint(port, 10, 16)
-		if err != nil || number == 0 {
-			return errors.New("LICENSE_PORT must be a port number between 1 and 65535")
-		}
-		addr = ":" + port
+	if config.Server.Port < 1 || config.Server.Port > 65535 {
+		return errors.New("server.port must be between 1 and 65535")
 	}
-	certificate, err := tls.LoadX509KeyPair(os.Getenv("LICENSE_TLS_CERT_FILE"), os.Getenv("LICENSE_TLS_KEY_FILE"))
-	if err != nil {
-		return fmt.Errorf("load HTTPS certificate: %w", err)
+	addr := net.JoinHostPort(config.Server.Host, strconv.Itoa(config.Server.Port))
+	listen := fiber.ListenConfig{ListenerNetwork: "tcp"}
+	certFile, keyFile := config.Server.TLSCertFile, config.Server.TLSKeyFile
+	if (certFile == "") != (keyFile == "") {
+		return errors.New("configure both server.tls_cert_file and server.tls_key_file for HTTPS")
 	}
-	service := issuer{db: db, keyID: kid, key: key, tokenHash: sha256.Sum256([]byte(token))}
-	return service.routes().Listen(addr, fiber.ListenConfig{
-		ListenerNetwork: "tcp",
-		TLSConfig: &tls.Config{
+	if certFile != "" {
+		certificate, err := tls.LoadX509KeyPair(certFile, keyFile)
+		if err != nil {
+			return fmt.Errorf("load HTTPS certificate: %w", err)
+		}
+		listen.TLSConfig = &tls.Config{
 			MinVersion:   tls.VersionTLS12,
 			Certificates: []tls.Certificate{certificate},
-		},
-	})
-}
-
-func loadDotEnv(path string) error {
-	file, err := os.Open(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
-	if err != nil {
-		return fmt.Errorf("open environment file: %w", err)
-	}
-	defer file.Close()
-
-	values, err := dotenv.ParseWithLookup(file, os.LookupEnv)
-	if err != nil {
-		return errors.New("invalid .env configuration")
-	}
-	for name, value := range values {
-		if _, exists := os.LookupEnv(name); exists {
-			continue
-		}
-		if err := os.Setenv(name, value); err != nil {
-			return errors.New("could not load .env configuration")
 		}
 	}
-	return nil
-}
-
-func databaseConfig(getenv func(string) string) (*mysql.Config, error) {
-	user := getenv("LICENSE_DB_USER")
-	password := getenv("LICENSE_DB_PASSWORD")
-	address := getenv("LICENSE_DB_ADDRESS")
-	database := getenv("LICENSE_DB_NAME")
-	tlsValue := getenv("LICENSE_DB_TLS")
-	if user == "" && password == "" && address == "" && database == "" && tlsValue == "" {
-		return readDBConfig(getenv("LICENSE_DB_CONFIG_FILE"), getenv("LICENSE_DB_DSN_FILE"))
-	}
-	useTLS := true
-	if tlsValue != "" {
-		var err error
-		useTLS, err = strconv.ParseBool(tlsValue)
-		if err != nil {
-			return nil, errors.New("LICENSE_DB_TLS must be a boolean")
-		}
-	}
-	config, err := mysqlConfig(user, password, address, database, useTLS)
-	if err != nil {
-		return nil, errors.New("set LICENSE_DB_USER, LICENSE_DB_ADDRESS, and LICENSE_DB_NAME")
-	}
-	return config, nil
-}
-
-func readDBConfig(configPath, dsnPath string) (*mysql.Config, error) {
-	if configPath != "" {
-		data, err := os.ReadFile(configPath)
-		if err != nil {
-			return nil, fmt.Errorf("read LICENSE_DB_CONFIG_FILE: %w", err)
-		}
-		var settings struct {
-			User     string `json:"user"`
-			Password string `json:"password"`
-			Address  string `json:"address"`
-			Database string `json:"database"`
-			TLS      *bool  `json:"tls"`
-		}
-		if err := json.Unmarshal(data, &settings, json.RejectUnknownMembers(true)); err != nil {
-			return nil, errors.New("invalid JSON in LICENSE_DB_CONFIG_FILE")
-		}
-		config, err := mysqlConfig(settings.User, settings.Password, settings.Address, settings.Database, settings.TLS == nil || *settings.TLS)
-		if err != nil {
-			return nil, errors.New("LICENSE_DB_CONFIG_FILE requires user, address, and database")
-		}
-		return config, nil
-	}
-
-	if dsnPath == "" {
-		return nil, errors.New("set LICENSE_DB_USER, LICENSE_DB_ADDRESS, and LICENSE_DB_NAME")
-	}
-	data, err := os.ReadFile(dsnPath)
-	if err != nil {
-		return nil, fmt.Errorf("read LICENSE_DB_DSN_FILE: %w", err)
-	}
-	dsn := strings.TrimRight(string(data), "\r\n")
-	if dsn == "" {
-		return nil, errors.New("empty license database DSN")
-	}
-	config, err := mysql.ParseDSN(dsn)
-	if err != nil {
-		return nil, errors.New("invalid license database DSN")
-	}
-	return config, nil
-}
-
-func mysqlConfig(user, password, address, database string, useTLS bool) (*mysql.Config, error) {
-	if user == "" || address == "" || database == "" {
-		return nil, errors.New("missing required MySQL settings")
-	}
-	config := mysql.NewConfig()
-	config.User = user
-	config.Passwd = password
-	config.Net = "tcp"
-	config.Addr = address
-	config.DBName = database
-	if useTLS {
-		config.TLSConfig = "true"
-	}
-	return config, nil
+	service := issuer{db: db, keyID: kid, key: key, tokenHash: sha256.Sum256([]byte(token))}
+	return service.routes().Listen(addr, listen)
 }
 
 func openDB(config *mysql.Config) (*sql.DB, error) {

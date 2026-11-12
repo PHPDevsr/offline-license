@@ -1,6 +1,6 @@
 # Central License Service
 
-This HTTPS service uses Fiber v3 to issue `.license` files for registered products.
+This service uses Fiber v3 to issue `.license` files for registered products.
 MySQL stores the product catalog and the licenses for each installation.
 Applications verify licenses offline with an Ed25519 public key.
 See the [offline license v1 specification](docs/license-v1.md).
@@ -19,20 +19,21 @@ the account host with the host for your deployment.
 GRANT SELECT ON license_service.licenses TO 'license_issuer'@'issuer-host';
 ```
 
-Copy [`.env.example`](.env.example) to `.env` and fill in the read-only
-MySQL account settings. Put the password in single quotes so characters
-such as `$` and `#` are read literally.
+Copy [`config.example.yaml`](config.example.yaml) to `config.yaml` and fill
+in the read-only MySQL account settings. Single quotes preserve symbols in
+the password. Write an apostrophe inside a single-quoted value as `''`.
 
-```dotenv
-LICENSE_DB_USER=license_issuer
-LICENSE_DB_PASSWORD='example-$@:/?#%'
-LICENSE_DB_ADDRESS=db.example.com:3306
-LICENSE_DB_NAME=license_service
-LICENSE_DB_TLS=true
+```yaml
+database:
+  user: license_issuer
+  password: 'example-$@:/?#%'
+  address: db.example.com:3306
+  name: license_service
+  tls: true
 ```
 
 TLS with certificate verification is enabled by default. Use a valid MySQL
-certificate trusted by the service, or set `LICENSE_DB_TLS=false` for local
+certificate trusted by the service, or set `database.tls` to `false` for local
 MySQL without TLS. Use a separate administrative account for migrations and
 data changes.
 
@@ -41,35 +42,36 @@ data changes.
 Deploy on the License Server host. Create or mount an Ed25519 signing key
 in PKCS#8 PEM format from the service secret store. To generate a key, run
 `openssl genpkey -algorithm ED25519 -out signing.pem` with `umask 077`.
-Provide the HTTPS certificate and its private key.
-The Fiber listener serves HTTP/1.1 over TLS 1.2 or later.
+The Fiber listener uses HTTP/1.1. Leave both TLS file paths empty or omit
+them to serve HTTP. To serve HTTPS directly, provide both files. The
+listener then requires TLS 1.2 or later.
 
-| Variable | Value |
+| Setting | Value |
 | --- | --- |
-| `LICENSE_KEY_ID` | ID of the public key distributed to applications |
-| `LICENSE_PRIVATE_KEY_FILE` | Path to the private signing key |
-| `LICENSE_OPERATOR_TOKEN` | Random operator token of at least 32 characters with no whitespace |
-| `LICENSE_DB_USER` | Read-only MySQL account name |
-| `LICENSE_DB_PASSWORD` | MySQL password |
-| `LICENSE_DB_ADDRESS` | MySQL host and port |
-| `LICENSE_DB_NAME` | License database name |
-| `LICENSE_DB_TLS` | Enable MySQL TLS with certificate verification. Defaults to `true` |
-| `LICENSE_TLS_CERT_FILE` | Path to the HTTPS certificate chain in PEM format |
-| `LICENSE_TLS_KEY_FILE` | Path to the HTTPS private key in PEM format |
-| `LICENSE_BIND_IP` | Host IP used by Docker Compose to publish the port. Defaults to `127.0.0.1` |
-| `LICENSE_PORT` | HTTPS listen port and the port published by Compose. Defaults to `8443` |
-| `LICENSE_LISTEN_ADDR` | Optional full listen address for the standalone binary. Takes precedence over `LICENSE_PORT` |
+| `signing.key_id` | ID of the public key distributed to applications |
+| `signing.private_key_file` | Path to the private signing key |
+| `operator_token` | Random operator token of at least 32 characters with no whitespace |
+| `server.tls_cert_file` | Optional path to the HTTPS certificate chain in PEM format |
+| `server.tls_key_file` | Optional path to the HTTPS private key in PEM format |
+| `server.host` | Listener IP or hostname. An empty value listens on all interfaces |
+| `server.port` | HTTP or HTTPS listener port. Defaults to `8443` |
 
-Fill in the operator token and file paths in `.env`. Compose loads this
-file automatically. The standalone binary reads `.env` from its working
-directory. In either case, existing environment variables take precedence.
-For standalone deployments using file-based MySQL configuration,
-`LICENSE_DB_CONFIG_FILE` or `LICENSE_DB_DSN_FILE` remains available when
-the individual MySQL variables are unset. Compose deployments use the
-individual settings shown above.
+The standalone binary reads `config.yaml` from its working directory.
+Relative key and certificate paths are resolved from that file's directory.
+Compose mounts `config.yaml` and `secrets/` as read-only. The files must
+be readable by container UID/GID `65532:65532`.
 
-Files mounted by Compose must be readable by container UID/GID `65532:65532`.
-On Linux with bind mounts, grant that UID or GID access to the source files.
+Compose publishes `127.0.0.1:8443` by default. If you change `server.port`,
+update the container port in `compose.yaml` to match. The host port and
+bind address are set in `compose.yaml`.
+
+To terminate TLS at a reverse proxy, configure the proxy to serve
+`https://licenses.example.com` and forward requests to the service over
+HTTP. A proxy running on the Docker host can use `http://127.0.0.1:8443`.
+A proxy container on the same Docker network can use
+`http://license-server:8443`. For a proxy on a separate host, publish the
+port on a private address reachable by that proxy. Keep the HTTP listener
+private so operators send their tokens through the HTTPS endpoint.
 Restrict access to the operator network and use an address that matches the
 certificate.
 
@@ -103,16 +105,16 @@ VALUES ('example-license-001', 'example-installation-001', 'example-app',
 
 ## Issue and renew licenses
 
-Operators request license files over HTTPS. Use the port set by
-`LICENSE_PORT` in the URL. The central operator holds the
-token, which authorizes issuance for all products. Customer applications use
+Operators request license files over the HTTPS endpoint.
+Set the shell variable `OPERATOR_TOKEN` to the `operator_token` value from
+`config.yaml` before running the example. Customer applications use
 the license file and public key for offline verification.
 
 ```sh
 umask 077
 curl --fail --silent --show-error \
-  --request POST https://licenses.example.com:8443/v1/licenses/issue \
-  --header "Authorization: Bearer $LICENSE_OPERATOR_TOKEN" \
+  --request POST https://licenses.example.com/v1/licenses/issue \
+  --header "Authorization: Bearer $OPERATOR_TOKEN" \
   --header 'Content-Type: application/json' \
   --data '{"license_id":"example-license-001","installation_id":"example-installation-001"}' \
   --output .license.new
@@ -143,7 +145,7 @@ git push origin v1.0.0
 
 After the CI matrix passes, GitHub Actions publishes release notes, binary
 archives for Linux, Windows, and macOS (`amd64` and `arm64`), and
-`SHA256SUMS`. Each archive contains the database schema and `.env.example`.
+`SHA256SUMS`. Each archive contains the database schema and `config.example.yaml`.
 
 ## Checks
 

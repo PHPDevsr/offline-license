@@ -3,9 +3,9 @@ module github.com/PHPDevsr/offline-license
 go 1.27.4
 
 require (
-	github.com/compose-spec/compose-go/v2 v2.16.2
 	github.com/go-sql-driver/mysql v1.10.1
 	github.com/gofiber/fiber/v3 v3.7.0
+	go.yaml.in/yaml/v4 v4.0.0
 )
 
 require (
@@ -18,7 +18,6 @@ require (
 	github.com/mattn/go-isatty v0.0.24 // indirect
 	github.com/molecule-man/go-brrr v1.3.1 // indirect
 	github.com/philhofer/fwd v1.2.1 // indirect
-	github.com/sirupsen/logrus v1.10.1 // indirect
 	github.com/tinylib/msgp v1.6.5 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	github.com/valyala/fasthttp v1.78.0 // indirect

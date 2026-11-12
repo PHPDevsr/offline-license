@@ -2,6 +2,7 @@
 /license-server
 /license-server.exe
 /.env
+/config.yaml
 /secrets/
 *.pem
 *.license

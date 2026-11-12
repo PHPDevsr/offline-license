@@ -1,31 +1,21 @@
 services:
   license-server:
     build: .
+    working_dir: /etc/offline-license
     ports:
-      - "${LICENSE_BIND_IP:-127.0.0.1}:${LICENSE_PORT:-8443}:${LICENSE_PORT:-8443}"
-    environment:
-      LICENSE_KEY_ID: "${LICENSE_KEY_ID:?Set the active key ID}"
-      LICENSE_PORT: "${LICENSE_PORT:-8443}"
-      LICENSE_OPERATOR_TOKEN: "${LICENSE_OPERATOR_TOKEN:?Set the operator token}"
-      LICENSE_PRIVATE_KEY_FILE: /run/secrets/signing_key
-      LICENSE_DB_USER: "${LICENSE_DB_USER:?Set the MySQL username}"
-      LICENSE_DB_PASSWORD: "${LICENSE_DB_PASSWORD-}"
-      LICENSE_DB_ADDRESS: "${LICENSE_DB_ADDRESS:?Set the MySQL address}"
-      LICENSE_DB_NAME: "${LICENSE_DB_NAME:?Set the MySQL database name}"
-      LICENSE_DB_TLS: "${LICENSE_DB_TLS:-true}"
-      LICENSE_TLS_CERT_FILE: /run/secrets/tls_certificate
-      LICENSE_TLS_KEY_FILE: /run/secrets/tls_key
-    secrets:
-      - signing_key
-      - tls_certificate
-      - tls_key
+      - "127.0.0.1:8443:8443"
+    volumes:
+      - type: bind
+        source: ./config.yaml
+        target: /etc/offline-license/config.yaml
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./secrets
+        target: /etc/offline-license/secrets
+        read_only: true
+        bind:
+          create_host_path: false
     read_only: true
     restart: unless-stopped
-
-secrets:
-  signing_key:
-    file: "${LICENSE_PRIVATE_KEY_FILE:?Set the signing key path}"
-  tls_certificate:
-    file: "${LICENSE_TLS_CERT_FILE:?Set the TLS certificate path}"
-  tls_key:
-    file: "${LICENSE_TLS_KEY_FILE:?Set the TLS key path}"

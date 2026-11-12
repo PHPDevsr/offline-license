@@ -1,0 +1,18 @@
+server:
+  host: ""
+  port: 8443
+  tls_cert_file: ""
+  tls_key_file: ""
+
+signing:
+  key_id: example-key
+  private_key_file: ./secrets/signing.pem
+
+operator_token: ""
+
+database:
+  user: license_issuer
+  password: 'example-$@:/?#%'
+  address: db.example.com:3306
+  name: license_service
+  tls: true
