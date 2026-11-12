@@ -7,8 +7,8 @@ See the [offline license v1 specification](docs/license-v1.md).
 
 ## Database
 
-Create a dedicated MySQL database and apply
-[`001_create_licenses.sql`](migrations/001_create_licenses.sql) using an
+Create a dedicated, empty MySQL database and apply
+[`001_create_licenses.sql`](migrations/001_create_licenses.sql) once using an
 administrative account. Both `DATETIME(6)` columns require UTC timestamps.
 
 Create a dedicated account for the issuer. This example assumes the
@@ -17,6 +17,7 @@ the account host with the host for your deployment.
 
 ```sql
 GRANT SELECT ON license_service.licenses TO 'license_issuer'@'issuer-host';
+GRANT SELECT ON license_service.license_products TO 'license_issuer'@'issuer-host';
 ```
 
 Copy [`config.example.yaml`](config.example.yaml) to `config.yaml` and fill
@@ -89,17 +90,24 @@ public key for as long as any active license uses it.
 
 ## Register products and installations
 
-Register each product once. Every product uses the `offline-license` issuer.
-Integrate the verifier once per application using its product code.
+Register each product once. Every product uses the `phpdevsr-offline-license` issuer.
+MySQL assigns `product_no` as the internal primary key. Set `product_id` to a
+unique, stable code and configure the application verifier to expect that code.
+The signed payload carries the code in its `product` field. You can edit
+`product_name`, the display name, without affecting issued licenses.
 To add a customer installation, create a license record with stable IDs
-and UTC dates. The running service picks up new records on the next
-issuance request.
+and UTC dates. MySQL assigns `license_no` as the internal primary key. Both
+`license_id` and `installation_id` are unique across the service. Assign a
+distinct installation ID to each product deployment. The running service
+picks up new records on the next issuance request without a rebuild or restart.
 
 ```sql
-INSERT INTO license_products (product) VALUES ('example-app');
+INSERT INTO license_products (product_id, product_name)
+VALUES ('example-app', 'Example App');
 
-INSERT INTO licenses (license_id, installation_id, product, expired, expired_extra_gracia)
-VALUES ('example-license-001', 'example-installation-001', 'example-app',
+INSERT INTO licenses (license_id, installation_id, product_no, expired, expired_extra_gracia)
+VALUES ('example-license-001', 'example-installation-001',
+        (SELECT product_no FROM license_products WHERE product_id = 'example-app'),
         '2027-12-31 00:00:00', '2028-01-07 00:00:00');
 ```
 

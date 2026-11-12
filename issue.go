@@ -84,10 +84,11 @@ func (i issuer) issue(c fiber.Ctx) error {
 	var license claims
 	var expired, grace string
 	err = i.db.QueryRowContext(ctx, `
-		SELECT license_id, installation_id, product,
-		       CAST(expired AS CHAR), CAST(expired_extra_gracia AS CHAR)
-		FROM licenses
-		WHERE license_id = ? AND installation_id = ?`, req.LicenseID, req.InstallationID).
+		SELECT l.license_id, l.installation_id, p.product_id,
+		       CAST(l.expired AS CHAR), CAST(l.expired_extra_gracia AS CHAR)
+		FROM licenses AS l
+		JOIN license_products AS p ON p.product_no = l.product_no
+		WHERE l.license_id = ? AND l.installation_id = ?`, req.LicenseID, req.InstallationID).
 		Scan(&license.LicenseID, &license.InstallationID, &license.Product, &expired, &grace)
 	if errors.Is(err, sql.ErrNoRows) {
 		return fiber.NewError(fiber.StatusNotFound, "License not found")

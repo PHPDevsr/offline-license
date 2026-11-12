@@ -2,11 +2,11 @@
 
 ## Identity
 
-- `product` is a stable application code in the License Server catalog.
-- Every product uses the issuer `offline-license`.
-- `license_id` is unique across the License Server. Each license belongs
-  to one product and one `installation_id`. Assign a stable installation ID
-  that is unique within the product to identify each customer deployment.
+- `product` is the stable application code stored as `product_id` in the License Server catalog.
+- Every product uses the issuer `phpdevsr-offline-license`.
+- `license_id` and `installation_id` are each unique across the License Server.
+  Each license belongs to one product. Assign a distinct, stable installation
+  ID to each product deployment.
 - IDs, product codes, issuers, and `kid` are case-sensitive ASCII strings
   of 1–128 characters drawn from `A-Z a-z 0-9 _ -`.
 
@@ -32,8 +32,8 @@ issuer signs the UTF-8 JSON payload bytes before encoding them.
 | Payload field | Type and value |
 | --- | --- |
 | `version` | Integer `1` |
-| `issuer` | String `offline-license` |
-| `product` | Registered product code string |
+| `issuer` | String `phpdevsr-offline-license` |
+| `product` | Stable product code string (`product_id` in the product catalog) |
 | `license_id` | License ID string |
 | `installation_id` | Installation ID string |
 | `expired` | Start of the grace period as an RFC 3339 UTC string ending in `Z` |
@@ -45,7 +45,7 @@ and the final expiration must be at or after the start of the grace period.
 ## Application verification
 
 1. Provision the keyring through trusted deployment configuration. Configure
-   the application with issuer `offline-license`, its product code, and the
+   the application with issuer `phpdevsr-offline-license`, its product code, and the
    local installation ID. The `print-keyring` command outputs a standard
    base64-encoded JSON object that maps each `kid` to a standard
    base64-encoded 32-byte Ed25519 public key.
