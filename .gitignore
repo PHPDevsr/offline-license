@@ -1,0 +1,7 @@
+/.local/
+/license-server
+/license-server.exe
+/.env
+/secrets/
+*.pem
+*.license

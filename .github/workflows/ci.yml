@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: ${{ matrix.os }} / Go ${{ matrix.go }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        go: [minimum, stable]
+    env:
+      GOTOOLCHAIN: local
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: ${{ matrix.go == 'stable' && 'stable' || '' }}
+          go-version-file: go.mod
+          check-latest: ${{ matrix.go == 'stable' }}
+
+      - name: Show Go version
+        run: go version
+
+      - name: Check Go formatting and imports
+        run: |
+          go install golang.org/x/tools/cmd/goimports@latest
+          for formatter in gofmt goimports; do
+            files=$(git ls-files -z -- '*.go' | xargs -0 "$formatter" -l)
+            if [[ -n "$files" ]]; then
+              printf '%s requires changes in:\n%s\n' "$formatter" "$files"
+              exit 1
+            fi
+          done
+
+      - name: Check module integrity and hygiene
+        run: |
+          go mod verify
+          go mod tidy -diff
+
+      - name: Run go vet
+        run: go vet ./...
+
+      - name: Run tests with race detector
+        env:
+          CGO_ENABLED: '1'
+        run: go test -race ./...
+
+      - name: Build production binary
+        run: CGO_ENABLED=0 go build -trimpath ./...

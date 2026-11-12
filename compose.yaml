@@ -1,0 +1,29 @@
+services:
+  license-server:
+    build: .
+    ports:
+      - "${LICENSE_BIND_IP:-127.0.0.1}:8443:8443"
+    environment:
+      LICENSE_KEY_ID: "${LICENSE_KEY_ID:?Set the active key ID}"
+      LICENSE_OPERATOR_TOKEN: "${LICENSE_OPERATOR_TOKEN:?Set the operator token}"
+      LICENSE_PRIVATE_KEY_FILE: /run/secrets/signing_key
+      LICENSE_DB_DSN_FILE: /run/secrets/database_dsn
+      LICENSE_TLS_CERT_FILE: /run/secrets/tls_certificate
+      LICENSE_TLS_KEY_FILE: /run/secrets/tls_key
+    secrets:
+      - signing_key
+      - database_dsn
+      - tls_certificate
+      - tls_key
+    read_only: true
+    restart: unless-stopped
+
+secrets:
+  signing_key:
+    file: "${LICENSE_PRIVATE_KEY_FILE:?Set the signing key path}"
+  database_dsn:
+    file: "${LICENSE_DB_DSN_FILE:?Set the read-only database DSN path}"
+  tls_certificate:
+    file: "${LICENSE_TLS_CERT_FILE:?Set the TLS certificate path}"
+  tls_key:
+    file: "${LICENSE_TLS_KEY_FILE:?Set the TLS key path}"
