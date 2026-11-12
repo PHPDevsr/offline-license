@@ -61,13 +61,15 @@ Relative key and certificate paths are resolved from that file's directory.
 Compose mounts `config.yaml` and `secrets/` as read-only. The files must
 be readable by container UID/GID `65532:65532`.
 
-Compose publishes `127.0.0.1:8443` by default. If you change `server.port`,
-update the container port in `compose.yaml` to match. The host port and
-bind address are set in `compose.yaml`.
+Run `sh deploy.sh` to deploy with Compose. It reads `server.port` from
+`config.yaml` and uses that value for both the container and published host
+ports. Run it again after editing the configuration. The host bind address
+defaults to `127.0.0.1` in `compose.yaml`.
 
 To terminate TLS at a reverse proxy, configure the proxy to serve
 `https://licenses.example.com` and forward requests to the service over
-HTTP. A proxy running on the Docker host can use `http://127.0.0.1:8443`.
+HTTP. Use the configured port in the proxy's upstream address. With the
+default port, a proxy on the Docker host can use `http://127.0.0.1:8443`.
 A proxy container on the same Docker network can use
 `http://license-server:8443`. For a proxy on a separate host, publish the
 port on a private address reachable by that proxy. Keep the HTTP listener
@@ -76,9 +78,7 @@ Restrict access to the operator network and use an address that matches the
 certificate.
 
 ```sh
-docker compose config --quiet
-docker compose build
-docker compose up -d
+sh deploy.sh
 docker compose run --rm --no-deps license-server print-keyring
 ```
 

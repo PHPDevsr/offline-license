@@ -29,11 +29,22 @@ func main() {
 }
 
 func run() error {
-	if len(os.Args) > 1 && (len(os.Args) != 2 || os.Args[1] != "print-keyring") {
-		return errors.New("expected no argument or print-keyring")
+	command := ""
+	if len(os.Args) > 1 {
+		if len(os.Args) != 2 || (os.Args[1] != "print-keyring" && os.Args[1] != "print-port") {
+			return errors.New("expected no argument, print-keyring, or print-port")
+		}
+		command = os.Args[1]
 	}
 	config, err := loadConfig("config.yaml")
 	if err != nil {
+		return err
+	}
+	if command != "print-keyring" && (config.Server.Port < 1 || config.Server.Port > 65535) {
+		return errors.New("server.port must be between 1 and 65535")
+	}
+	if command == "print-port" {
+		_, err := fmt.Println(config.Server.Port)
 		return err
 	}
 	key, err := readPrivateKey(config.Signing.PrivateKeyFile)
@@ -44,7 +55,7 @@ func run() error {
 	if !validID(kid) {
 		return errors.New("invalid signing.key_id")
 	}
-	if len(os.Args) == 2 {
+	if command == "print-keyring" {
 		publicKey := base64.StdEncoding.EncodeToString(key.Public().(ed25519.PublicKey))
 		keyring, err := json.Marshal(map[string]string{kid: publicKey})
 		if err != nil {
@@ -68,9 +79,6 @@ func run() error {
 	}
 	defer db.Close()
 
-	if config.Server.Port < 1 || config.Server.Port > 65535 {
-		return errors.New("server.port must be between 1 and 65535")
-	}
 	addr := net.JoinHostPort(config.Server.Host, strconv.Itoa(config.Server.Port))
 	listen := fiber.ListenConfig{ListenerNetwork: "tcp"}
 	certFile, keyFile := config.Server.TLSCertFile, config.Server.TLSKeyFile

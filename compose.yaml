@@ -3,7 +3,7 @@ services:
     build: .
     working_dir: /etc/offline-license
     ports:
-      - "127.0.0.1:8443:8443"
+      - "127.0.0.1:${LICENSE_COMPOSE_PORT:-8443}:${LICENSE_COMPOSE_PORT:-8443}"
     volumes:
       - type: bind
         source: ./config.yaml
