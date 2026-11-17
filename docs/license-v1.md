@@ -24,10 +24,23 @@ final expiration.
 
 ## File format
 
-The envelope is a JSON object with three string fields, `kid`, `payload`,
-and `signature`. The verifier uses `kid` to select a trusted Ed25519 public
-key. Both `payload` and `signature` use unpadded RFC 4648 base64url. The
-issuer signs the UTF-8 JSON payload bytes before encoding them.
+New files include `installation_id` alongside `kid`, `payload`, and
+`signature` in the JSON envelope.
+
+```json
+{
+  "kid": "signing-2026",
+  "installation_id": "example-installation-001",
+  "payload": "<base64url payload>",
+  "signature": "<base64url signature>"
+}
+```
+
+The verifier uses `kid` to select a trusted Ed25519 public key. Both
+`payload` and `signature` use unpadded RFC 4648 base64url. The issuer signs
+the UTF-8 JSON payload bytes before encoding them. Previously issued files
+may omit the envelope `installation_id`. When present, it must be a string
+that exactly matches the ID in the verified payload.
 
 | Payload field | Type and value |
 | --- | --- |
@@ -53,8 +66,9 @@ and the final expiration must be at or after the start of the grace period.
    key by `kid`, and verify the signature using the decoded payload bytes
    directly.
 3. After verifying the signature, validate the version, issuer, product,
-   installation ID, and dates. Reject licenses for another product even if
-   both products trust the same signing key.
+   installation ID, and dates. Compare the signed installation ID with the
+   optional envelope ID and the local installation ID. Reject licenses for
+   another product even if both products trust the same signing key.
 4. Check the current UTC time locally at startup and while accepting work.
    The license is active before `expired`. From `expired` until
    `expired_extra_gracia`, the application may continue accepting work during
@@ -62,3 +76,7 @@ and the final expiration must be at or after the start of the grace period.
 
 Integrate this verifier once per application. Product registration,
 installation provisioning, and renewals use the License Server database.
+
+Deploy verifiers that accept the envelope `installation_id` to all
+application processes before upgrading the License Server. Verify each
+process accepts both old and new files before issuing the new format.

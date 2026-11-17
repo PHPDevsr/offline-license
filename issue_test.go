@@ -63,6 +63,9 @@ func TestSignLicenseV1(t *testing.T) {
 	if signed.KeyID != "test-key" {
 		t.Fatalf("unexpected key ID %q", signed.KeyID)
 	}
+	if signed.InstallationID != "install_2" {
+		t.Fatalf("unexpected envelope installation ID %q", signed.InstallationID)
+	}
 	payload, err := base64.RawURLEncoding.Strict().DecodeString(signed.Payload)
 	if err != nil {
 		t.Fatal(err)

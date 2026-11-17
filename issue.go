@@ -39,9 +39,10 @@ type claims struct {
 }
 
 type envelope struct {
-	KeyID     string `json:"kid"`
-	Payload   string `json:"payload"`
-	Signature string `json:"signature"`
+	KeyID          string `json:"kid"`
+	InstallationID string `json:"installation_id"`
+	Payload        string `json:"payload"`
+	Signature      string `json:"signature"`
 }
 
 func (i issuer) routes() *fiber.App {
@@ -157,8 +158,9 @@ func (i issuer) sign(c claims) ([]byte, error) {
 		return nil, err
 	}
 	return json.Marshal(envelope{
-		KeyID:     i.keyID,
-		Payload:   base64.RawURLEncoding.EncodeToString(payload),
-		Signature: base64.RawURLEncoding.EncodeToString(ed25519.Sign(i.key, payload)),
+		KeyID:          i.keyID,
+		InstallationID: c.InstallationID,
+		Payload:        base64.RawURLEncoding.EncodeToString(payload),
+		Signature:      base64.RawURLEncoding.EncodeToString(ed25519.Sign(i.key, payload)),
 	})
 }
