@@ -102,73 +102,143 @@ configuration. During rotation, distribute the new public key to all application
 using the keyring before activating the new signing key. Keep the previous
 public key for as long as any active license uses it.
 
-## Register products and installations
+## Register, issue, and renew a license
 
-Register each product once. Every product uses the `phpdevsr-offline-license` issuer.
-MySQL assigns `product_no` as the internal primary key. Set `product_id` to a
-unique, stable code and configure the application verifier to expect that code.
-The signed payload carries the code in its `product` field. You can edit
-`product_name`, the display name, without affecting issued licenses.
-Create one license per customer entitlement. Its product, expiration, and
-grace deadline apply to all of its installations. Assign a distinct, stable
-ID to every deployment and register each under the same license.
+Use a database administrator account to provision licenses after applying
+`migrations/001_create_licenses.sql`. The License Server's runtime account
+only needs the SELECT grants described above.
+
+### 1. Register the product and generate a license key
+
+Register the application's product code once. For WOM, the expected
+`product_id` is `eclaim-wom-api`. Skip the insert if the product already exists.
 
 ```sql
 INSERT INTO license_products (product_id, product_name)
-VALUES ('example-app', 'Example App');
+VALUES ('eclaim-wom-api', 'ETIQA CLAIM');
+```
 
-INSERT INTO licenses (license_id, product_no, expired, expired_extra_gracia)
-VALUES ('example-license-001',
-        (SELECT product_no FROM license_products WHERE product_id = 'example-app'),
-        '2027-12-31 00:00:00', '2028-01-07 00:00:00');
+Generate one key per customer license. The raw `LICENSE_KEY` is a renewal
+credential shared by all installations under that license. The database stores
+the SHA-256 digest of the **encoded key text**.
+
+```bash
+set +x
+LICENSE_KEY=$(openssl rand -base64 32 | tr '+/' '-_' | tr -d '=\n')
+LICENSE_KEY_HASH=$(printf '%s' "$LICENSE_KEY" | openssl dgst -sha256 -r | cut -d' ' -f1)
+printf 'SHA-256 hash for SQL: %s\n' "$LICENSE_KEY_HASH"
+```
+
+Save the raw `LICENSE_KEY` from the shell in your secret store. Use the
+displayed 64-character hex digest in the SQL below. Keep the raw key out of
+SQL statements and request logs.
+
+### 2. Create the license and register its installations
+
+Choose one stable `license_id` for the entitlement and a distinct
+`installation_id` for each deployment. The product, key, and dates apply to
+every installation under that license. Use UTC for both dates. `expired`
+starts the grace period and `expired_extra_gracia` ends it.
+
+Run this as one transaction and commit after both inserts succeed. Roll back
+the transaction if either insert fails.
+
+```sql
+START TRANSACTION;
+
+INSERT INTO licenses (
+    product_no, license_id, license_key_hash, expired, expired_extra_gracia
+) VALUES (
+    (SELECT product_no FROM license_products WHERE product_id = 'eclaim-wom-api'),
+    'wom-client-a-001',
+    UNHEX('<64-character hex digest>'),
+    '2027-12-31 00:00:00',
+    '2028-01-07 00:00:00'
+);
+
+SET @license_no = LAST_INSERT_ID();
 
 INSERT INTO license_installations (installation_id, license_no)
-SELECT 'example-installation-001', license_no FROM licenses WHERE license_id = 'example-license-001';
+VALUES ('wom-client-a-prod', @license_no),
+       ('wom-client-a-dr', @license_no);
+
+COMMIT;
 ```
 
-Generate one key per license from 32 cryptographically random bytes encoded as
-unpadded base64url. Store the SHA-256 digest of the encoded key as the 32 raw
-bytes in `licenses.license_key_hash`. Apply the digest using a bound parameter
-or pass its hex representation to `UNHEX` in the administrative update.
-Distribute the encoded key to that license's installations through a secret
-store and avoid putting it in shell history, SQL, or request logs. To rotate
-it, provision a new digest and update those installations' configuration.
+### 3. Issue and install the initial files
 
-## Issue and renew licenses
+Load `OPERATOR_TOKEN` from the same secret used for `operator_token` in the
+server configuration. Send one HTTPS issue request per installation.
 
-Operators request license files over the HTTPS endpoint.
-Set the shell variable `OPERATOR_TOKEN` to the `operator_token` value from
-`config.yaml` before running the example. Customer applications use
-the license file and public key for offline verification, and their license key
-for renewal.
-
-```sh
+```bash
 umask 077
-curl --fail --silent --show-error \
-  --request POST https://licenses.example.com/v1/licenses/issue \
-  --header "Authorization: Bearer $OPERATOR_TOKEN" \
-  --header 'Content-Type: application/json' \
-  --data '{"license_id":"example-license-001","installation_id":"example-installation-001"}' \
-  --output .license.new
+for installation_id in wom-client-a-prod wom-client-a-dr; do
+  printf 'Authorization: Bearer %s\n' "$OPERATOR_TOKEN" |
+    curl --fail --silent --show-error \
+      --request POST https://licenses.example.com/v1/licenses/issue \
+      --header @- \
+      --header 'Content-Type: application/json' \
+      --data "$(printf '{"license_id":"wom-client-a-001","installation_id":"%s"}' "$installation_id")" \
+      --output "${installation_id}.license" || break
+done
 ```
 
-| Status | Result |
-| --- | --- |
-| `200` | Signed `.license` file |
-| `400` | Invalid request, such as invalid JSON or IDs, supplied dates, or a body larger than 4 KiB |
-| `401` | Invalid operator token |
-| `404` | License and installation ID pair not found |
-| `422` | Invalid product configuration or dates, or the final expiration has passed |
-| `503` | License database unavailable |
+HTTP 200 returns a signed file. Install the matching file on each deployment
+as `license/.license` and configure the trusted public keyring. Reissue legacy
+files that lack an envelope `installation_id` before deploying WOM versions
+that require it.
 
-To renew, the administrator extends both dates on the existing license.
-The application sends `POST /v1/licenses/renew` over HTTPS with JSON fields
-`product_id`, `license_key`, and `installation_id`. A successful request
-returns the signed `.license` as the response body with `Cache-Control: no-store`.
-A malformed request returns 400. A well-formed request with an incorrect key,
-product, or installation returns 404. A license without active dates returns
-422. Database errors return 503. Legacy files without an envelope installation
-ID must be reissued before deploying clients that require it.
+For WOM, set these values in each deployment's `.env`. Both installations
+use the same raw key and each keeps its own signed file.
+
+```dotenv
+LICENSE_KEY=<raw key from the secret store>
+LICENSE_RENEW_URL=https://licenses.example.com/v1/licenses/renew
+```
+
+### 4. Extend the dates and renew
+
+Extend both dates on the existing license. The example assumes the dates from
+step 2 are still registered. Check that the new `expired` is in the future and
+later than the previous value. Keep `expired_extra_gracia` at or after
+`expired` and at or after its previous value.
+
+```sql
+UPDATE licenses
+SET expired = '2028-12-31 00:00:00',
+    expired_extra_gracia = '2029-01-07 00:00:00'
+WHERE license_id = 'wom-client-a-001';
+```
+
+The WOM API requests renewal at its current file's `expired` time and retries
+during grace. The License Server looks up the product and installation
+associated with the submitted key and signs a new file using the stored dates.
+WOM verifies the signature, identity, and dates before replacing its local file.
+Its workers read the updated file from the shared directory.
+
+To check renewal manually after extending the dates, load the raw
+`LICENSE_KEY` from the secret store. Send the request over HTTPS and save the
+result to a separate file for verification.
+
+```bash
+set +x
+umask 077
+printf '{"product_id":"eclaim-wom-api","license_key":"%s","installation_id":"wom-client-a-prod"}' "$LICENSE_KEY" |
+  curl --fail --silent --show-error \
+    --request POST https://licenses.example.com/v1/licenses/renew \
+    --header 'Content-Type: application/json' \
+    --data-binary @- \
+    --output wom-client-a-prod.renewed.license
+```
+
+| Status | Issue | Renew |
+| --- | --- | --- |
+| `200` | Signed `.license` file | Signed `.license` file with the registered dates |
+| `400` | Invalid request | Invalid request, including a malformed key |
+| `401` | Invalid operator token | — |
+| `404` | License and installation pair not found | Key, product, and installation do not match a registered license |
+| `422` | Invalid license configuration or final expiration has passed | Invalid license configuration or `expired` is due or past |
+| `503` | License database unavailable | License database unavailable |
 
 ## Releases
 
