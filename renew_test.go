@@ -63,7 +63,7 @@ func TestRenewHTTPErrorResponses(t *testing.T) {
 }
 
 func TestRenewMySQL(t *testing.T) {
-	// Use a dedicated empty database. This test applies both real migrations.
+	// Use a dedicated empty database. This test applies the initial schema.
 	dsn := os.Getenv("LICENSE_TEST_MYSQL_DSN")
 	if dsn == "" {
 		t.Skip("set LICENSE_TEST_MYSQL_DSN to a dedicated empty test database")
@@ -95,21 +95,17 @@ func TestRenewMySQL(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	migrate := func(path string) {
-		t.Helper()
-		data, err := os.ReadFile(path)
-		if err != nil {
-			t.Fatal(err)
-		}
-		exec(string(data))
+	schema, err := os.ReadFile("migrations/001_create_licenses.sql")
+	if err != nil {
+		t.Fatal(err)
 	}
-	migrate("migrations/001_create_licenses.sql")
+	exec(string(schema))
 	exec(`INSERT INTO license_products (product_no, product_id, product_name) VALUES (1, 'test-app', 'Test')`)
-	exec(`INSERT INTO licenses (license_no, product_no, license_id, installation_id, expired, expired_extra_gracia)
-		VALUES (1, 1, 'license-a', 'install-a', '2099-01-01', '2099-01-02'),
-		       (2, 1, 'license-b', 'install-c', '2099-01-01', '2099-01-02')`)
-	migrate("migrations/002_license_installations.sql")
-	exec(`INSERT INTO license_installations (installation_id, license_no) VALUES ('install-b', 1)`)
+	exec(`INSERT INTO licenses (license_no, product_no, license_id, expired, expired_extra_gracia)
+		VALUES (1, 1, 'license-a', '2099-01-01', '2099-01-02'),
+		       (2, 1, 'license-b', '2099-01-01', '2099-01-02')`)
+	exec(`INSERT INTO license_installations (installation_id, license_no)
+		VALUES ('install-a', 1), ('install-b', 1), ('install-c', 2)`)
 
 	pub, private, err := ed25519.GenerateKey(nil)
 	if err != nil {

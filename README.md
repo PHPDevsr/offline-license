@@ -8,7 +8,7 @@ See the [offline license v1 specification](docs/license-v1.md).
 ## Database
 
 Create a dedicated, empty MySQL database and apply
-[`001_create_licenses.sql`](migrations/001_create_licenses.sql) and [`002_license_installations.sql`](migrations/002_license_installations.sql) in order using an
+[`001_create_licenses.sql`](migrations/001_create_licenses.sql) once using an
 administrative account. Both `DATETIME(6)` columns require UTC timestamps.
 
 Create a dedicated account for the issuer. This example assumes the
@@ -133,12 +133,6 @@ or pass its hex representation to `UNHEX` in the administrative update.
 Distribute the encoded key to that license's installations through a secret
 store and avoid putting it in shell history, SQL, or request logs. To rotate
 it, provision a new digest and update those installations' configuration.
-
-For an existing deployment, stop the License Server and pause administrative
-writes before applying only migration 002. It copies the existing installation
-mappings before removing their old column. Grant runtime SELECT access to
-`license_installations` before starting the updated server. Existing licenses
-can still be issued using their original IDs. Provision a key to enable renewal.
 
 ## Issue and renew licenses
 
