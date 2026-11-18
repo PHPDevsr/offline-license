@@ -8,7 +8,7 @@ See the [offline license v1 specification](docs/license-v1.md).
 ## Database
 
 Create a dedicated, empty MySQL database and apply
-[`001_create_licenses.sql`](migrations/001_create_licenses.sql) once using an
+[`001_create_licenses.sql`](migrations/001_create_licenses.sql) and [`002_license_installations.sql`](migrations/002_license_installations.sql) in order using an
 administrative account. Both `DATETIME(6)` columns require UTC timestamps.
 
 Create a dedicated account for the issuer. This example assumes the
@@ -18,6 +18,7 @@ the account host with the host for your deployment.
 ```sql
 GRANT SELECT ON license_service.licenses TO 'license_issuer'@'issuer-host';
 GRANT SELECT ON license_service.license_products TO 'license_issuer'@'issuer-host';
+GRANT SELECT ON license_service.license_installations TO 'license_issuer'@'issuer-host';
 ```
 
 Copy [`config.example.yaml`](config.example.yaml) to `config.yaml` and fill
@@ -108,28 +109,44 @@ MySQL assigns `product_no` as the internal primary key. Set `product_id` to a
 unique, stable code and configure the application verifier to expect that code.
 The signed payload carries the code in its `product` field. You can edit
 `product_name`, the display name, without affecting issued licenses.
-To add a customer installation, create a license record with stable IDs
-and UTC dates. MySQL assigns `license_no` as the internal primary key. Both
-`license_id` and `installation_id` are unique across the service. Assign a
-distinct installation ID to each product deployment. The running service
-picks up new records on the next issuance request without a rebuild or restart.
+Create one license per customer entitlement. Its product, expiration, and
+grace deadline apply to all of its installations. Assign a distinct, stable
+ID to every deployment and register each under the same license.
 
 ```sql
 INSERT INTO license_products (product_id, product_name)
 VALUES ('example-app', 'Example App');
 
-INSERT INTO licenses (license_id, installation_id, product_no, expired, expired_extra_gracia)
-VALUES ('example-license-001', 'example-installation-001',
+INSERT INTO licenses (license_id, product_no, expired, expired_extra_gracia)
+VALUES ('example-license-001',
         (SELECT product_no FROM license_products WHERE product_id = 'example-app'),
         '2027-12-31 00:00:00', '2028-01-07 00:00:00');
+
+INSERT INTO license_installations (installation_id, license_no)
+SELECT 'example-installation-001', license_no FROM licenses WHERE license_id = 'example-license-001';
 ```
+
+Generate one key per license from 32 cryptographically random bytes encoded as
+unpadded base64url. Store the SHA-256 digest of the encoded key as the 32 raw
+bytes in `licenses.license_key_hash`. Apply the digest using a bound parameter
+or pass its hex representation to `UNHEX` in the administrative update.
+Distribute the encoded key to that license's installations through a secret
+store and avoid putting it in shell history, SQL, or request logs. To rotate
+it, provision a new digest and update those installations' configuration.
+
+For an existing deployment, stop the License Server and pause administrative
+writes before applying only migration 002. It copies the existing installation
+mappings before removing their old column. Grant runtime SELECT access to
+`license_installations` before starting the updated server. Existing licenses
+can still be issued using their original IDs. Provision a key to enable renewal.
 
 ## Issue and renew licenses
 
 Operators request license files over the HTTPS endpoint.
 Set the shell variable `OPERATOR_TOKEN` to the `operator_token` value from
 `config.yaml` before running the example. Customer applications use
-the license file and public key for offline verification.
+the license file and public key for offline verification, and their license key
+for renewal.
 
 ```sh
 umask 077
@@ -150,10 +167,14 @@ curl --fail --silent --show-error \
 | `422` | Invalid product configuration or dates, or the final expiration has passed |
 | `503` | License database unavailable |
 
-To renew a license, update both dates on the existing record and request a
-new file with the same IDs. Install the new file according to the
-application's runbook. The previous file remains valid offline until its own
-final expiration.
+To renew, the administrator extends both dates on the existing license.
+The application sends `POST /v1/licenses/renew` over HTTPS with JSON fields
+`product_id`, `license_key`, and `installation_id`. A successful request
+returns the signed `.license` as the response body with `Cache-Control: no-store`.
+A malformed request returns 400. A well-formed request with an incorrect key,
+product, or installation returns 404. A license without active dates returns
+422. Database errors return 503. Legacy files without an envelope installation
+ID must be reissued before deploying clients that require it.
 
 ## Releases
 

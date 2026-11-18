@@ -5,7 +5,8 @@
 - `product` is the stable application code stored as `product_id` in the License Server catalog.
 - Every product uses the issuer `phpdevsr-offline-license`.
 - `license_id` and `installation_id` are each unique across the License Server.
-  Each license belongs to one product. Assign a distinct, stable installation
+  Each license belongs to one product and can cover multiple installations with
+  a common renewal key and expiry. Assign a distinct, stable installation
   ID to each product deployment.
 - IDs, product codes, issuers, and `kid` are case-sensitive ASCII strings
   of 1–128 characters drawn from `A-Z a-z 0-9 _ -`.
@@ -18,9 +19,11 @@ strings, `license_id` and `installation_id`. The License Server reads the
 product and dates from the database. An HTTP `200` response contains
 the `.license` file.
 
-To renew a license, the administrator updates the dates and the operator
-sends the same ID pair again. The previous file remains valid until its own
-final expiration.
+To renew a license, the administrator extends its dates. The application
+sends `POST /v1/licenses/renew` over HTTPS with three JSON strings,
+`product_id`, `license_key`, and `installation_id`. The server verifies their
+association and returns the signed file if the new dates are active. The
+previous file remains valid until its own final expiration.
 
 ## File format
 
@@ -67,7 +70,7 @@ and the final expiration must be at or after the start of the grace period.
    directly.
 3. After verifying the signature, validate the version, issuer, product,
    installation ID, and dates. Compare the signed installation ID with the
-   optional envelope ID and the local installation ID. Reject licenses for
+   envelope ID. WOM requires the envelope ID and uses the signed ID for renewal. Reject licenses for
    another product even if both products trust the same signing key.
 4. Check the current UTC time locally at startup and while accepting work.
    The license is active before `expired`. From `expired` until
@@ -77,6 +80,4 @@ and the final expiration must be at or after the start of the grace period.
 Integrate this verifier once per application. Product registration,
 installation provisioning, and renewals use the License Server database.
 
-Deploy verifiers that accept the envelope `installation_id` to all
-application processes before upgrading the License Server. Verify each
-process accepts both old and new files before issuing the new format.
+Reissue legacy files that omit the envelope installation ID before upgrading WOM.
